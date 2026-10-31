@@ -1,0 +1,5 @@
+# للحاسوب. على Termux استخدم install_termux.sh بدلاً من هذا الملف.
+opencv-python>=4.8
+numpy>=1.24
+# اختياري: فقط إن اخترت PINCH_BACKEND = "u2"
+# uiautomator2>=3.0
