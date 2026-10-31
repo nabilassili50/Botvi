@@ -2,28 +2,38 @@
 
 عند كل دخول جديد: يغلق النوافذ المنبثقة ← يصغّر القلعة لأقصى حد ← يحدد كل مبنى موجود ويحفظ إحداثياته.
 
-## التشغيل على Termux (على الهاتف نفسه)
+## التشغيل على Termux (على الهاتف وحده، عبر Shizuku)
 
+هذه الطريقة لا تحتاج حاسوباً ولا نافذة اقتران ولا شاشة منقسمة.
+
+### 1) تثبيت المتطلبات
 ```
-git clone https://github.com/<حسابك>/lords-bot.git
-cd lords-bot
 bash install_termux.sh
 ```
 
-### ربط adb بالهاتف نفسه (مرة واحدة، أندرويد 11+)
-1. الإعدادات ← خيارات المطور ← **التصحيح اللاسلكي** ← فعّله.
-2. اضغط «اقتران بالجهاز برمز الاقتران» (يظهر منفذ ورمز). افتح Termux في نافذة عائمة/منقسمة وشغّل:
-   ```
-   adb pair localhost:<منفذ_الاقتران>      # ثم اكتب الرمز
-   adb connect localhost:<منفذ_الاتصال>    # المنفذ الظاهر في شاشة التصحيح اللاسلكي
-   adb devices
-   export LORDS_SERIAL=localhost:<منفذ_الاتصال>
-   ```
-3. القرص يتم عبر `sendevent` مباشرة، فلا حاجة لـ uiautomator2.
+### 2) تثبيت Shizuku وتشغيله
+1. ثبّت تطبيق **Shizuku** (من Google Play أو من GitHub: RikkaApps/Shizuku).
+2. افتحه واختر **Start via Wireless debugging** (البدء عبر التصحيح اللاسلكي).
+3. اضغط **Pairing**. ستفتح لك إعدادات المطور وسيظهر **إشعار** فيه خانة لكتابة رمز الاقتران.
+   - من الإعدادات اضغط «اقتران الجهاز برمز الاقتران» ثم اسحب شريط الإشعارات واكتب الرمز المكوّن من 6 أرقام داخل إشعار Shizuku.
+   - لا تحتاج أن تغادر شاشة الإعدادات، هنا الفرق عن adb.
+4. ارجع إلى Shizuku واضغط **Start**. يجب أن يظهر «Shizuku is running».
 
-التصحيح اللاسلكي يتطلب اتصال Wi‑Fi، وقد يتغير منفذ الاتصال بعد إعادة التشغيل أو تغيير الشبكة.
+### 3) ربط Termux بـ Shizuku (rish)
+1. في Shizuku: **Use Shizuku in terminal apps** ← **Export files** ← اختر مجلد Downloads.
+2. في Termux:
+   ```
+   bash setup_rish.sh
+   ```
+3. افتح جلسة Termux جديدة ثم جرّب:
+   ```
+   rish -c "id"
+   ```
+   يجب أن يطبع `uid=2000(shell)`. وقد يظهر طلب إذن لـ Termux داخل Shizuku، اقبله.
 
-### التشغيل
+بعد إعادة تشغيل الهاتف تحتاج تشغيل Shizuku مرة أخرى (الخطوة 2.4).
+
+### 4) التشغيل
 ```
 termux-wake-lock
 python bot.py --watch      # تلقائي عند كل دخول جديد للعبة
@@ -32,7 +42,7 @@ python bot.py              # مرة واحدة
 
 ### القوالب (مهم)
 `cv2.selectROI` يحتاج واجهة رسومية وغير متاح في Termux، لذا:
-- **الأسهل:** أنشئ القوالب على الحاسوب بـ `python capture_templates.py`، ثم `git add templates && git commit && git push`، وفي Termux نفّذ `git pull`.
+- **الأسهل:** أنشئ القوالب على حاسوب بـ `python capture_templates.py`، ثم ارفعها إلى GitHub واسحبها في Termux.
 - **من الهاتف فقط:**
   ```
   python capture_templates.py --grab shot.png --grid   # يحفظ shot_grid.png عليها شبكة إحداثيات
@@ -40,16 +50,13 @@ python bot.py              # مرة واحدة
   ```
   افتح `shot_grid.png` من المعرض، اقرأ إحداثيات كل مبنى، ثم قصّه بـ `--crop NAME X Y W H`.
 
-## التشغيل على الحاسوب
+## التشغيل على الحاسوب (adb)
 ```
 pip install -r requirements.txt
+export LORDS_BACKEND=adb
+python bot.py
 ```
-ثبّت `adb` وفعّل USB debugging (أو شغّل المحاكي) وتأكد من `adb devices`. إن لم يعمل `sendevent` على جهازك اضبط `PINCH_BACKEND = "u2"` وثبّت `uiautomator2` ونفّذ `python -m uiautomator2 init`.
-
-## الخطوات العامة
-1. التقط قوالب المباني (انظر أعلاه). كرر لنفس المبنى بمستويات/أشكال مختلفة.
-2. (اختياري) قوالب أزرار الإغلاق: `templates/_ui/close_1.png` ...
-3. شغّل `python bot.py` أو `--watch`.
+ثبّت `adb` وفعّل USB debugging وتأكد من `adb devices`.
 
 ## المخرجات (مجلد `runs/`، غير مرفوع إلى Git)
 - `latest.json`: المباني الموجودة (الاسم، المستطيل، المركز cx/cy، الدرجة) + `missing` للمباني غير الظاهرة.
@@ -64,4 +71,5 @@ pip install -r requirements.txt
 
 ## ملاحظات
 - القوالب مرتبطة بدقة الشاشة؛ التقطها من نفس الجهاز.
+- عبر rish كل أمر يستغرق نحو ثانية، لذا التصغير أبطأ قليلاً من adb.
 - لا ترفع إلى GitHub أي رموز أو مفاتيح؛ `.gitignore` يستثني `runs/` و`.env`.

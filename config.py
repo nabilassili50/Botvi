@@ -7,6 +7,10 @@ import os
 SERIAL = os.environ.get("LORDS_SERIAL") or None
 PACKAGE = "com.igg.android.lordsmobile"
 
+# "adb"  : PC, or Termux with a paired adb
+# "rish" : Termux + Shizuku (no pairing dialog needed, phone only)
+BACKEND = os.environ.get("LORDS_BACKEND", "adb")
+
 # ---- الانتظار (ثوانٍ) ----
 LOAD_WAIT = 25                     # انتظار تحميل اللعبة بعد كل دخول
 WATCH_POLL = 2                     # فترة فحص هل اللعبة في الواجهة (وضع المراقبة)

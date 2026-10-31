@@ -1,9 +1,8 @@
-"""بوت لوردس موبايل: عند كل دخول جديد -> يغلق النوافذ -> يصغّر القلعة للحد الأقصى -> يحدد المباني.
+"""Lords Mobile bot: on every fresh entry -> close popups -> zoom out to the max -> detect buildings.
 
-التشغيل:
-    python bot.py            # تشغيل واحد (يفتح اللعبة إن لم تكن مفتوحة)
-    python bot.py --watch    # مراقبة: يعيد العملية تلقائياً عند كل دخول جديد للعبة
-    python bot.py --no-launch  # لا يفتح اللعبة، يفترض أنها مفتوحة
+    python bot.py              # one run (launches the game if it is not open)
+    python bot.py --watch      # watch mode: re-run automatically on every new entry to the game
+    python bot.py --no-launch  # do not launch the game, assume it is already open
 """
 import argparse
 import json
@@ -29,13 +28,13 @@ def close_popups(dev, ui):
         pos = find_ui(dev.screenshot(), ui, "close")
         if not pos:
             break
-        log(f"إغلاق نافذة منبثقة ({i + 1}) عند {pos}")
+        log(f"closing popup ({i + 1}) at {pos}")
         dev.tap(*pos)
         dev.wait(1.0)
 
 
 def zoom_out_max(dev):
-    """يكرر القرص حتى تتوقف الصورة عن التغيّر (أقصى تصغير)."""
+    """Pinch repeatedly until the screen stops changing (maximum zoom-out)."""
     prev = dev.screenshot()
     stable = 0
     for i in range(config.MAX_ZOOM_ITER):
@@ -43,28 +42,28 @@ def zoom_out_max(dev):
         dev.wait(config.ZOOM_SETTLE)
         cur = dev.screenshot()
         d = frame_diff(prev, cur)
-        log(f"تصغير #{i + 1}: فرق={d:.2f}")
+        log(f"zoom #{i + 1}: diff={d:.2f}")
         if d < config.ZOOM_DIFF_THRESHOLD:
             stable += 1
             if stable >= config.ZOOM_STABLE_COUNT:
-                log("وصل إلى أقصى تصغير")
+                log("max zoom-out reached")
                 return cur
         else:
             stable = 0
         prev = cur
-    log("تحذير: انتهت المحاولات دون استقرار كامل")
+    log("warning: ran out of attempts before the view became stable")
     return prev
 
 
 def run_once(dev, launch=True):
     buildings_tpl, ui_tpl = load_templates()
     if not buildings_tpl:
-        log(f"تنبيه: لا توجد قوالب في {config.TEMPLATES_DIR}/ - شغّل capture_templates.py أولاً")
+        log(f"warning: no templates in {config.TEMPLATES_DIR}/ - run capture_templates.py first")
 
     if launch and not dev.is_foreground():
-        log("فتح اللعبة...")
+        log("launching the game...")
         dev.launch()
-    log(f"انتظار التحميل {config.LOAD_WAIT}ث")
+    log(f"waiting {config.LOAD_WAIT}s for the game to load")
     dev.wait(config.LOAD_WAIT)
 
     close_popups(dev, ui_tpl)
@@ -90,24 +89,24 @@ def run_once(dev, launch=True):
         json.dump(result, f, ensure_ascii=False, indent=2)
     cv2.imwrite(os.path.join(config.OUTPUT_DIR, f"{stamp}.png"), annotate(img, found))
 
-    log(f"تم تحديد {len(found)} مبنى؛ غير موجود: {missing or 'لا شيء'}")
+    log(f"detected {len(found)} buildings; missing: {missing or 'none'}")
     return result
 
 
 def watch(dev):
     was_fg = False
-    log("وضع المراقبة يعمل. Ctrl+C للإيقاف.")
+    log("watch mode running. Ctrl+C to stop.")
     while True:
         try:
             fg = dev.is_foreground()
             if fg and not was_fg:
-                log("دخول جديد للعبة")
+                log("new entry to the game")
                 run_once(dev, launch=False)
-            was_fg = dev.is_foreground()
+            was_fg = fg
         except KeyboardInterrupt:
             raise
         except Exception as e:  # noqa: BLE001
-            log(f"خطأ: {e}")
+            log(f"error: {e}")
         time.sleep(config.WATCH_POLL)
 
 
@@ -119,14 +118,14 @@ def main():
     args = ap.parse_args()
 
     dev = Device(args.serial)
-    log(f"الشاشة: {dev.size()}")
+    log(f"backend={config.BACKEND} screen={dev.size()}")
     try:
         if args.watch:
             watch(dev)
         else:
             run_once(dev, launch=not args.no_launch)
     except KeyboardInterrupt:
-        log("تم الإيقاف")
+        log("stopped")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import time
@@ -7,7 +8,7 @@ import numpy as np
 
 import config
 
-# ثوابت evdev (أرقام عشرية لأن sendevent يقبلها)
+# evdev constants (decimal, as accepted by sendevent)
 EV_SYN, EV_KEY, EV_ABS = 0, 1, 3
 BTN_TOUCH = 330
 ABS_MT_SLOT = 47
@@ -17,55 +18,79 @@ ABS_MT_POSITION_Y = 54
 ABS_MT_TRACKING_ID = 57
 ABS_MT_PRESSURE = 58
 
+SHARED_SHOT = ".lords_shot.png"
+
 
 class Device:
+    """Runs shell commands on the phone through adb (PC / adb pair) or rish (Termux + Shizuku)."""
+
     def __init__(self, serial=None):
         self.serial = serial or config.SERIAL
         self._u2 = None
         self._touch = None
 
-    # ---------- ADB ----------
-    def _adb(self, *args, binary=False, timeout=30):
-        cmd = ["adb"] + (["-s", self.serial] if self.serial else []) + list(args)
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    # ---------- shell backend ----------
+    def _sh(self, cmd, binary=False, timeout=30):
+        if config.BACKEND == "rish":
+            full = ["rish", "-c", cmd]
+        else:
+            full = ["adb"] + (["-s", self.serial] if self.serial else []) + \
+                   ["exec-out" if binary else "shell", cmd]
+        try:
+            r = subprocess.run(full, capture_output=True, timeout=timeout)
+        except FileNotFoundError:
+            raise RuntimeError(f"'{full[0]}' not found. See README (Termux / Shizuku).")
         if r.returncode != 0:
-            raise RuntimeError(f"adb failed: {' '.join(cmd[:6])}...\n{r.stderr.decode(errors='ignore')}")
+            raise RuntimeError(f"{full[0]} failed: {cmd[:60]}\n{r.stderr.decode(errors='ignore')}")
         return r.stdout if binary else r.stdout.decode(errors="ignore")
 
-    def screenshot(self):
-        data = self._adb("exec-out", "screencap", "-p", binary=True)
+    @staticmethod
+    def _decode(data):
         img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None and b"\r\n" in data:      # pty-style CRLF mangling
+            img = cv2.imdecode(np.frombuffer(data.replace(b"\r\n", b"\n"), np.uint8),
+                               cv2.IMREAD_COLOR)
+        return img
+
+    def screenshot(self):
+        img = self._decode(self._sh("screencap -p", binary=True))
+        if img is None and config.BACKEND == "rish":
+            # fallback: write to shared storage and read it from Termux
+            self._sh(f"screencap -p /sdcard/{SHARED_SHOT}")
+            path = os.path.expanduser(f"~/storage/shared/{SHARED_SHOT}")
+            with open(path, "rb") as f:
+                img = self._decode(f.read())
         if img is None:
-            raise RuntimeError("تعذر قراءة لقطة الشاشة")
+            raise RuntimeError("Could not decode screenshot")
         return img
 
     def size(self):
-        out = self._adb("shell", "wm", "size")
+        out = self._sh("wm size")
         m = re.findall(r"(\d+)x(\d+)", out)
         w, h = map(int, m[-1])
         return w, h
 
     def tap(self, x, y):
-        self._adb("shell", "input", "tap", str(int(x)), str(int(y)))
+        self._sh(f"input tap {int(x)} {int(y)}")
 
     def launch(self, package=None):
         pkg = package or config.PACKAGE
-        self._adb("shell", "monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1")
+        self._sh(f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1")
 
     def is_foreground(self, package=None):
         pkg = package or config.PACKAGE
-        out = self._adb("shell", "dumpsys", "window")
+        out = self._sh("dumpsys window | grep mCurrentFocus")
         for line in out.splitlines():
             if "mCurrentFocus" in line:
                 return pkg in line
         return False
 
-    # ---------- القرص عبر sendevent (يعمل على Termux/الجهاز مباشرة بدون وكيل) ----------
+    # ---------- pinch via sendevent (no helper app needed) ----------
     def _touch_info(self):
-        """يكتشف جهاز اللمس ونطاق إحداثياته من getevent."""
+        """Find the touch device and its coordinate range from getevent."""
         if self._touch:
             return self._touch
-        out = self._adb("shell", "getevent", "-pl")
+        out = self._sh("getevent -pl")
         best = None
         for block in re.split(r"(?m)^add device \d+:\s*", out)[1:]:
             path = block.split("\n", 1)[0].strip()
@@ -85,7 +110,7 @@ class Device:
                 break
             best = best or info
         if not best:
-            raise RuntimeError("لم أجد شاشة لمس متعددة النقاط في getevent")
+            raise RuntimeError("No multi-touch screen found in getevent output")
         self._touch = best
         return best
 
@@ -109,7 +134,6 @@ class Device:
             if t["major"]:
                 e(EV_ABS, ABS_MT_TOUCH_MAJOR, 8)
 
-        # لمس الإصبعين
         for slot, tid, y in ((0, 100, cy - d0), (1, 101, cy + d0)):
             e(EV_ABS, ABS_MT_SLOT, slot)
             e(EV_ABS, ABS_MT_TRACKING_ID, tid)
@@ -119,7 +143,6 @@ class Device:
         e(EV_KEY, BTN_TOUCH, 1)
         e(EV_SYN, 0, 0)
 
-        # تحريك الإصبعين نحو المركز
         for i in range(1, steps + 1):
             d = int(d0 + (d1 - d0) * i / steps)
             e(EV_ABS, ABS_MT_SLOT, 0)
@@ -128,7 +151,6 @@ class Device:
             e(EV_ABS, ABS_MT_POSITION_Y, cy + d)
             e(EV_SYN, 0, 0)
 
-        # رفع الإصبعين
         for slot in (0, 1):
             e(EV_ABS, ABS_MT_SLOT, slot)
             e(EV_ABS, ABS_MT_TRACKING_ID, -1)
@@ -137,9 +159,9 @@ class Device:
         return "; ".join(s)
 
     def _pinch_sendevent(self):
-        self._adb("shell", self._pinch_script(), timeout=90)
+        self._sh(self._pinch_script(), timeout=120)
 
-    # ---------- القرص عبر uiautomator2 (للحاسوب) ----------
+    # ---------- pinch via uiautomator2 (PC + adb only) ----------
     @property
     def u2(self):
         if self._u2 is None:
@@ -157,19 +179,19 @@ class Device:
                 return
             except Exception as e:  # noqa: BLE001
                 last = e
-        raise RuntimeError(f"فشل القرص عبر u2: {last}")
+        raise RuntimeError(f"u2 pinch failed: {last}")
 
     def pinch_in(self):
-        """قرص للداخل = تصغير الخريطة. الواجهة الخلفية من config.PINCH_BACKEND."""
+        """Pinch inwards = zoom the map out. Backend from config.PINCH_BACKEND."""
         backend = config.PINCH_BACKEND
-        if backend == "sendevent":
+        if backend == "sendevent" or config.BACKEND == "rish":
             return self._pinch_sendevent()
         if backend == "u2":
             return self._pinch_u2()
         try:  # auto
             return self._pinch_sendevent()
         except Exception as e:  # noqa: BLE001
-            print(f"sendevent فشل ({e}); أجرّب uiautomator2", flush=True)
+            print(f"sendevent failed ({e}); trying uiautomator2", flush=True)
             return self._pinch_u2()
 
     def wait(self, seconds):
