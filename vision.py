@@ -52,7 +52,7 @@ def _iou(a, b):
 
 def _ignored(cx, cy, shape):
     h, w = shape[:2]
-    for x1, y1, x2, y2 in config.IGNORE_REGIONS:
+    for x1, y1, x2, y2 in list(config.IGNORE_REGIONS) + list(config.CLUTTER_REGIONS):
         if x1 * w <= cx <= x2 * w and y1 * h <= cy <= y2 * h:
             return True
     return False

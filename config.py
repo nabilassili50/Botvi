@@ -47,6 +47,13 @@ IGNORE_REGIONS = [
     (0.0, 0.88, 1.0, 1.0),
 ]
 
+# ---- تنظيف الشاشة (الزحمة) عند الدخول ----
+# أي قالب واجهة يبدأ اسمه بأحد هذه البادئات (templates/_close*, _popup*, _skip*, _banner*) يُضغط حتى تنظف الشاشة
+CLEAN_PREFIXES = ("close", "popup", "skip", "banner")
+CLEAN_ROUNDS = 8                   # أقصى عدد ضغطات تنظيف
+# مناطق تُهمل في كشف المباني لأن فيها أيقونات عائمة/لافتات (x1,y1,x2,y2 كنسب). مثال: --set CLUTTER_REGIONS=[[0,0.1,0.12,0.5]]
+CLUTTER_REGIONS = []
+
 # ---- إغلاق النوافذ المنبثقة عند الدخول ----
 # ضع صور أزرار الإغلاق في templates/_close/*.png
 CLOSE_POPUP_ATTEMPTS = 5

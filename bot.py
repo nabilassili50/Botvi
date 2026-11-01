@@ -19,14 +19,23 @@ from vision import annotate, detect_buildings, find_ui, frame_diff, load_templat
 
 
 def close_popups(dev, ui):
-    if not any(n.lstrip("_").startswith("close") for n in ui):
+    """ينظّف الشاشة: يضغط أزرار الإغلاق/التخطي/اللافتات (config.CLEAN_PREFIXES) حتى لا يبقى شيء."""
+    keys = {n.lstrip("_") for n in ui}
+    prefixes = [p for p in config.CLEAN_PREFIXES if any(k.startswith(p) for k in keys)]
+    if not prefixes:
         return
-    for i in range(config.CLOSE_POPUP_ATTEMPTS):
-        pos = find_ui(dev.screenshot(), ui, "close")
-        if not pos:
-            break
-        log(f"closing popup ({i + 1}) at {pos}")
-        dev.tap(*pos)
+    for i in range(config.CLEAN_ROUNDS):
+        img = dev.screenshot()
+        hit = None
+        for p in prefixes:
+            pos = find_ui(img, ui, p)
+            if pos:
+                hit = (p, pos)
+                break
+        if not hit:
+            return
+        log(f"cleaning screen ({i + 1}): {hit[0]} at {hit[1]}")
+        dev.tap(*hit[1])
         dev.wait(1.0)
 
 
@@ -221,6 +230,7 @@ def main():
     ap.add_argument("--no-launch", action="store_true")
     ap.add_argument("--detect", action="store_true", help="اللعبة مفتوحة: أغلق النوافذ، صغّر القلعة للحد الأقصى، اكتشف المباني واحفظ النتيجة")
     ap.add_argument("--zoom", action="store_true", help="اللعبة مفتوحة: أغلق النوافذ وصغّر القلعة للحد الأقصى واحفظ اللقطة فقط (runs/castle_raw.png)")
+    ap.add_argument("--clean", action="store_true", help="اللعبة مفتوحة: نظّف الشاشة من النوافذ واللافتات ثم صغّر وثبّت المنظر")
     ap.add_argument("--serial")
     ap.add_argument("--task", help="مهام مفصولة بفاصلة: castle,hunt,gather — أو all = القلعة ثم الصيد ثم الجمع")
     ap.add_argument("--loop", action="store_true", help="كرّر المهام كل config.LOOP_PAUSE ثانية")
@@ -261,7 +271,14 @@ def main():
     dev = Device(args.serial)
     log(f"backend={config.BACKEND} screen={dev.size()}")
     try:
-        if args.zoom:
+        if args.clean:
+            _, ui_tpl = load_templates()
+            close_popups(dev, ui_tpl)
+            img = zoom_out_max(dev)
+            os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+            cv2.imwrite(os.path.join(config.OUTPUT_DIR, "castle_raw.png"), img)
+            log("screen cleaned; saved runs/castle_raw.png")
+        elif args.zoom:
             _, ui_tpl = load_templates()
             close_popups(dev, ui_tpl)
             img = zoom_out_max(dev)

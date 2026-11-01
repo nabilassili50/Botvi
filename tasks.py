@@ -50,14 +50,15 @@ class Runner:
 
     def dismiss_popups(self):
         """يغلق النوافذ المنبثقة (قوالب _close*) قبل كل جولة."""
-        if not any(n.startswith("close") for n in self.names):
-            return
-        for i in range(config.CLOSE_POPUP_ATTEMPTS):
-            pos = find_ui(self.dev.screenshot(), self.ui, "close", config.CLOSE_POPUP_THRESHOLD)
-            if not pos:
+        prefixes = [p for p in config.CLEAN_PREFIXES if any(n.startswith(p) for n in self.names)]
+        for i in range(config.CLEAN_ROUNDS):
+            img = self.dev.screenshot()
+            hit = next(((p, pos) for p in prefixes
+                        if (pos := find_ui(img, self.ui, p, config.CLOSE_POPUP_THRESHOLD))), None)
+            if not hit:
                 return
-            log(f"closing popup ({i + 1}) at {pos}")
-            self.dev.tap(*pos)
+            log(f"cleaning screen ({i + 1}): {hit[0]} at {hit[1]}")
+            self.dev.tap(*hit[1])
             self.dev.wait(1.0)
 
     def _dismiss(self):
