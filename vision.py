@@ -119,6 +119,27 @@ def find_ui(img, ui_templates, prefix, threshold=None, exact=False):
     return (best[0], best[1]) if best else None
 
 
+def find_all_ui(img, ui_templates, name, threshold=None):
+    """كل تطابقات عنصر واجهة اسمه بالضبط name (بعد دمج المتداخل): قائمة (cx, cy, score)."""
+    threshold = threshold or config.UI_THRESHOLD
+    tpls = None
+    for k, v in ui_templates.items():
+        if k.lstrip("_") == name:
+            tpls = v
+            break
+    if not tpls:
+        return []
+    hits = sorted(((x, y, w, h, sc) for (x, y, w, h, sc)
+                   in match_one(to_gray(img), tpls, [0.9, 1.0, 1.1], threshold)),
+                  key=lambda c: c[4], reverse=True)
+    kept = []
+    for c in hits:
+        if any(_iou(c[:4], k[:4]) > config.NMS_IOU for k in kept):
+            continue
+        kept.append(c)
+    return [(x + w // 2, y + h // 2, sc) for (x, y, w, h, sc) in kept]
+
+
 def annotate(img, found):
     out = img.copy()
     for b in found:

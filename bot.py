@@ -107,15 +107,17 @@ def watch(dev):
         time.sleep(config.WATCH_POLL)
 
 
-def run_tasks(dev, names, loop, launch=True, resource=None):
+def run_tasks(dev, names, loop, launch=True, resource=None, level=None):
     from tasks import Runner, missing_templates
     import flows
     bad = [n for n in names if n not in flows.TASKS]
     if bad:
         raise SystemExit(f"مهمة مجهولة: {bad} (المتاح: {list(flows.TASKS)})")
+    if level and level not in range(1, 6):
+        raise SystemExit("--level يجب أن يكون بين 1 و5")
     if resource and resource not in flows.RESOURCES:
         raise SystemExit(f"مورد مجهول: {resource} (المتاح: {list(flows.RESOURCES)})")
-    lacking = {k: v for k, v in missing_templates(names, resource).items() if v}
+    lacking = {k: v for k, v in missing_templates(names, resource, level=level).items() if v}
     if lacking:
         log(f"warning: missing templates: {lacking}  (شغّل --check للتفاصيل)")
 
@@ -126,7 +128,7 @@ def run_tasks(dev, names, loop, launch=True, resource=None):
 
     if launch and not dev.is_foreground():
         start_game()
-    runner = Runner(dev, resource)
+    runner = Runner(dev, resource, level)
     idle = 0
     while True:
         if not dev.is_foreground():
@@ -144,7 +146,7 @@ def run_tasks(dev, names, loop, launch=True, resource=None):
                 res = {n: 0 for n in names}
             st = record_round(res)
             log(f"round: {res} | total: {st['marches']}")
-            idle = idle + 1 if sum(res.values()) == 0 else 0
+            idle = 0 if runner.all_blocked(names) else (idle + 1 if sum(res.values()) == 0 else 0)
             if loop and launch and config.AUTO_RELAUNCH and idle >= config.RESTART_AFTER_IDLE_ROUNDS:
                 log(f"{idle} idle rounds -> restart the game")
                 dev.stop()
@@ -156,7 +158,7 @@ def run_tasks(dev, names, loop, launch=True, resource=None):
         time.sleep(config.LOOP_PAUSE)
 
 
-def check(names, resource=None):
+def check(names, resource=None, level=None):
     """يفحص القوالب الناقصة لكل مهمة بدون لمس الجهاز."""
     from tasks import missing_templates
     import flows
@@ -165,7 +167,7 @@ def check(names, resource=None):
     if bad:
         raise SystemExit(f"مهمة مجهولة: {bad}")
     ok = True
-    for n, need in missing_templates(names, resource).items():
+    for n, need in missing_templates(names, resource, level=level).items():
         if need:
             ok = False
             print(f"{n}: ناقص -> " + ", ".join(f"_{x}" for x in need))
@@ -182,18 +184,19 @@ def main():
     ap.add_argument("--task", help="مهام للتنفيذ مفصولة بفاصلة: gather,hunt")
     ap.add_argument("--loop", action="store_true", help="كرّر المهام كل config.LOOP_PAUSE ثانية")
     ap.add_argument("--resource", help="مورد الجمع: ore|wood|food|stone|gold")
+    ap.add_argument("--level", type=int, help="جمع من منطقة المستوى N (1-5) عبر مخطط المناطق مع السحب للبحث")
     ap.add_argument("--check", action="store_true", help="يعرض القوالب الناقصة للمهام ويخرج")
     args = ap.parse_args()
 
     if args.check:
-        check([t.strip() for t in (args.task or "").split(",") if t.strip()], args.resource)
+        check([t.strip() for t in (args.task or "").split(",") if t.strip()], args.resource, args.level)
 
     dev = Device(args.serial)
     log(f"backend={config.BACKEND} screen={dev.size()}")
     try:
         if args.task:
             run_tasks(dev, [t.strip() for t in args.task.split(",") if t.strip()], args.loop,
-                      launch=not args.no_launch, resource=args.resource)
+                      launch=not args.no_launch, resource=args.resource, level=args.level)
         elif args.watch:
             watch(dev)
         else:
