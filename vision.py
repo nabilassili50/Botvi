@@ -104,13 +104,14 @@ def detect_buildings(img, buildings, scales=None, threshold=None):
     ]
 
 
-def find_ui(img, ui_templates, prefix, threshold=None):
+def find_ui(img, ui_templates, prefix, threshold=None, exact=False):
     """أفضل تطابق لعنصر واجهة (مثل زر إغلاق) اسمه يبدأ بـ prefix. يعيد (cx, cy) أو None."""
     threshold = threshold or config.CLOSE_POPUP_THRESHOLD
     gray = to_gray(img)
     best = None
     for name, tpls in ui_templates.items():
-        if not name.lstrip("_").startswith(prefix):
+        key = name.lstrip("_")
+        if (key != prefix) if exact else (not key.startswith(prefix)):
             continue
         for (x, y, w, h, sc) in match_one(gray, tpls, [0.9, 1.0, 1.1], threshold):
             if best is None or sc > best[2]:

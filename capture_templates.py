@@ -22,11 +22,11 @@ from bot import zoom_out_max
 from device import Device
 
 
-def save_crop(img, name, x, y, w, h):
+def save_crop(img, name, x, y, w, h, ui=False):
     crop = img[y:y + h, x:x + w]
     if crop.size == 0:
         raise SystemExit("المستطيل خارج الصورة")
-    folder = os.path.join(config.TEMPLATES_DIR, name)
+    folder = os.path.join(config.TEMPLATES_DIR, ("_" if ui else "") + name)
     os.makedirs(folder, exist_ok=True)
     n = len([f for f in os.listdir(folder) if f.endswith(".png")]) + 1
     path = os.path.join(folder, f"{name}_{n}.png")
@@ -69,6 +69,8 @@ def main():
     ap.add_argument("--grab", metavar="FILE", help="التقط (بعد التصغير) واحفظ ثم اخرج")
     ap.add_argument("--grid", action="store_true", help="احفظ نسخة عليها شبكة إحداثيات")
     ap.add_argument("--crop", nargs=5, metavar=("NAME", "X", "Y", "W", "H"))
+    ap.add_argument("--ui", nargs=5, metavar=("NAME", "X", "Y", "W", "H"),
+                    help="قص زر واجهة وحفظه في templates/_NAME (للصيد والجمع)")
     ap.add_argument("--serial")
     args = ap.parse_args()
 
@@ -87,6 +89,11 @@ def main():
             gp = os.path.splitext(args.grab)[0] + "_grid.png"
             cv2.imwrite(gp, draw_grid(img))
             print("حُفظ:", gp)
+        return
+
+    if args.ui:
+        name, x, y, w, h = args.ui
+        save_crop(img, name.replace(" ", "_"), int(x), int(y), int(w), int(h), ui=True)
         return
 
     if args.crop:

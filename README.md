@@ -50,6 +50,29 @@ python bot.py              # مرة واحدة
   ```
   افتح `shot_grid.png` من المعرض، اقرأ إحداثيات كل مبنى، ثم قصّه بـ `--crop NAME X Y W H`.
 
+## الصيد والجمع (hunt / gather)
+الخطوات معرّفة في `flows.py` (عدّلها بدون لمس الكود). كل خطوة = زر تلقاه من قالب صورة وتضغط عليه.
+
+### 1) قصّ أزرار الواجهة كقوالب
+```
+python capture_templates.py --grab shot.png --grid --no-zoom   # لقطة بشبكة إحداثيات
+python capture_templates.py --image shot.png --ui search 40 300 70 70
+```
+يحفظ في `templates/_search/`. الأسماء المطلوبة (راجع `flows.py`):
+`search, tab_ore, tab_monster, do_search, gather_btn, attack_btn, march_btn`
+واختياريان: `world_map, close`. وللحد: `army_limit` (نافذة "لقد وصلت إلى حد الجيش!") و `army_limit_ok` (زر التأكيد).
+
+### 2) التشغيل
+```
+python bot.py --task gather            # جمع
+python bot.py --task hunt              # صيد
+python bot.py --task gather,hunt --loop   # يكرر كل LOOP_PAUSE ثانية
+```
+- إذا ظهرت نافذة حد الجيش: يؤكد وتتوقف المهمة.
+- 3 فشلات متتالية: يرجع (Back) ويوقف المهمة للجولة.
+- الحدود في `config.py`: `GATHER_MAX_MARCHES`, `HUNT_MAX_MARCHES`, `STEP_TIMEOUT`, `UI_THRESHOLD`.
+- إذا زرّ ما يتلقاش القالب، تنجم تزيد `"fixed": (fx, fy)` في الخطوة كنقطة احتياطية.
+
 ## التشغيل على الحاسوب (adb)
 ```
 pip install -r requirements.txt
@@ -73,3 +96,9 @@ python bot.py
 - القوالب مرتبطة بدقة الشاشة؛ التقطها من نفس الجهاز.
 - عبر rish كل أمر يستغرق نحو ثانية، لذا التصغير أبطأ قليلاً من adb.
 - لا ترفع إلى GitHub أي رموز أو مفاتيح؛ `.gitignore` يستثني `runs/` و`.env`.
+
+## ميزات v8
+- `python bot.py --check --task gather,hunt [--resource wood]`: يعرض القوالب الناقصة لكل مهمة بدون لمس الهاتف.
+- `--resource ore|wood|food|stone|gold`: مورد الجمع (يستعمل قالب `_tab_<المورد>`؛ الافتراضي `RESOURCE` في config).
+- في `--loop`: يغلق النوافذ المنبثقة قبل كل جولة، ويعيد تشغيل اللعبة إن خرجت من الواجهة، وبعد `RESTART_AFTER_IDLE_ROUNDS` جولات بلا أي جيش يغلقها بالقوة ويعيد تشغيلها (`AUTO_RELAUNCH` لإيقاف هذا).
+- السجل يُحفظ في `runs/bot.log` والإحصائيات التراكمية (عدد الجولات والجيوش لكل مهمة) في `runs/stats.json`.

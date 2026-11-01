@@ -14,11 +14,8 @@ import cv2
 
 import config
 from device import Device
+from util import log, record_round
 from vision import annotate, detect_buildings, find_ui, frame_diff, load_templates
-
-
-def log(msg):
-    print(f"[{datetime.now():%H:%M:%S}] {msg}", flush=True)
 
 
 def close_popups(dev, ui):
@@ -110,17 +107,94 @@ def watch(dev):
         time.sleep(config.WATCH_POLL)
 
 
+def run_tasks(dev, names, loop, launch=True, resource=None):
+    from tasks import Runner, missing_templates
+    import flows
+    bad = [n for n in names if n not in flows.TASKS]
+    if bad:
+        raise SystemExit(f"مهمة مجهولة: {bad} (المتاح: {list(flows.TASKS)})")
+    if resource and resource not in flows.RESOURCES:
+        raise SystemExit(f"مورد مجهول: {resource} (المتاح: {list(flows.RESOURCES)})")
+    lacking = {k: v for k, v in missing_templates(names, resource).items() if v}
+    if lacking:
+        log(f"warning: missing templates: {lacking}  (شغّل --check للتفاصيل)")
+
+    def start_game():
+        log("launching the game...")
+        dev.launch()
+        dev.wait(config.LOAD_WAIT)
+
+    if launch and not dev.is_foreground():
+        start_game()
+    runner = Runner(dev, resource)
+    idle = 0
+    while True:
+        if not dev.is_foreground():
+            if launch and config.AUTO_RELAUNCH and loop:
+                log("game not in foreground -> relaunch")
+                start_game()
+            else:
+                log("game not in foreground - waiting")
+        else:
+            try:
+                runner.dismiss_popups()
+                res = runner.run_all(names)
+            except Exception as e:  # noqa: BLE001
+                log(f"round error: {e}")
+                res = {n: 0 for n in names}
+            st = record_round(res)
+            log(f"round: {res} | total: {st['marches']}")
+            idle = idle + 1 if sum(res.values()) == 0 else 0
+            if loop and launch and config.AUTO_RELAUNCH and idle >= config.RESTART_AFTER_IDLE_ROUNDS:
+                log(f"{idle} idle rounds -> restart the game")
+                dev.stop()
+                dev.wait(2)
+                start_game()
+                idle = 0
+        if not loop:
+            return
+        time.sleep(config.LOOP_PAUSE)
+
+
+def check(names, resource=None):
+    """يفحص القوالب الناقصة لكل مهمة بدون لمس الجهاز."""
+    from tasks import missing_templates
+    import flows
+    names = names or list(flows.TASKS)
+    bad = [n for n in names if n not in flows.TASKS]
+    if bad:
+        raise SystemExit(f"مهمة مجهولة: {bad}")
+    ok = True
+    for n, need in missing_templates(names, resource).items():
+        if need:
+            ok = False
+            print(f"{n}: ناقص -> " + ", ".join(f"_{x}" for x in need))
+        else:
+            print(f"{n}: كل القوالب موجودة")
+    raise SystemExit(0 if ok else 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--no-launch", action="store_true")
     ap.add_argument("--serial")
+    ap.add_argument("--task", help="مهام للتنفيذ مفصولة بفاصلة: gather,hunt")
+    ap.add_argument("--loop", action="store_true", help="كرّر المهام كل config.LOOP_PAUSE ثانية")
+    ap.add_argument("--resource", help="مورد الجمع: ore|wood|food|stone|gold")
+    ap.add_argument("--check", action="store_true", help="يعرض القوالب الناقصة للمهام ويخرج")
     args = ap.parse_args()
+
+    if args.check:
+        check([t.strip() for t in (args.task or "").split(",") if t.strip()], args.resource)
 
     dev = Device(args.serial)
     log(f"backend={config.BACKEND} screen={dev.size()}")
     try:
-        if args.watch:
+        if args.task:
+            run_tasks(dev, [t.strip() for t in args.task.split(",") if t.strip()], args.loop,
+                      launch=not args.no_launch, resource=args.resource)
+        elif args.watch:
             watch(dev)
         else:
             run_once(dev, launch=not args.no_launch)
