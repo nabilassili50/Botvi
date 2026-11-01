@@ -231,6 +231,12 @@ def main():
     ap.add_argument("--detect", action="store_true", help="اللعبة مفتوحة: أغلق النوافذ، صغّر القلعة للحد الأقصى، اكتشف المباني واحفظ النتيجة")
     ap.add_argument("--zoom", action="store_true", help="اللعبة مفتوحة: أغلق النوافذ وصغّر القلعة للحد الأقصى واحفظ اللقطة فقط (runs/castle_raw.png)")
     ap.add_argument("--clean", action="store_true", help="اللعبة مفتوحة: نظّف الشاشة من النوافذ واللافتات ثم صغّر وثبّت المنظر")
+    ap.add_argument("--record", metavar="NAME", help="سجّل مهمة: نفّذها بيدك في اللعبة والبوت يبني قوالبها وخطواتها (record.py)")
+    ap.add_argument("--rec-start", choices=["city", "world", "any"], default="city", help="أين تبدأ المهمة: city (المدينة) | world (الخريطة) | any")
+    ap.add_argument("--rec-zoom", action="store_true", help="يثبّت المنظر (تصغير + إزالة الإزاحة) قبل التسجيل وقبل كل تشغيل للمهمة")
+    ap.add_argument("--rec-every", type=int, default=0, metavar="SEC", help="أقل فاصل بين تشغيلين للمهمة المسجّلة (0 = كل جولة)")
+    ap.add_argument("--rec-interval", type=float, default=0.8, help="فاصل اللقطات الخلفية أثناء التسجيل (ثوانٍ)")
+    ap.add_argument("--rec-seconds", type=int, default=0, help="إيقاف التسجيل تلقائياً بعد هذه المدة (0 = يدوي)")
     ap.add_argument("--serial")
     ap.add_argument("--task", help="مهام مفصولة بفاصلة: castle,hunt,gather — أو all = القلعة ثم الصيد ثم الجمع")
     ap.add_argument("--loop", action="store_true", help="كرّر المهام كل config.LOOP_PAUSE ثانية")
@@ -271,7 +277,11 @@ def main():
     dev = Device(args.serial)
     log(f"backend={config.BACKEND} screen={dev.size()}")
     try:
-        if args.clean:
+        if args.record:
+            from record import Recorder
+            Recorder(dev, args.record, start=args.rec_start, every=args.rec_every, interval=args.rec_interval,
+                     max_seconds=args.rec_seconds, zoom=args.rec_zoom).run()
+        elif args.clean:
             _, ui_tpl = load_templates()
             close_popups(dev, ui_tpl)
             img = zoom_out_max(dev)

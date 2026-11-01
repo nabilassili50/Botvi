@@ -154,7 +154,9 @@ class Runner:
             name = st["ui"]
             thr = st.get("threshold", config.UI_THRESHOLD)
             pos = None
-            if name in self.names:
+            if name in self.names and st.get("near") and "fixed" in st:
+                pos = self._wait_near(name, st["fixed"], st.get("timeout", config.STEP_TIMEOUT), thr)
+            elif name in self.names:
                 pos = self.wait_for(name, st.get("timeout", config.STEP_TIMEOUT), thr)
             if pos:
                 d.tap(*pos)
@@ -366,6 +368,53 @@ class Runner:
         except OSError:
             pass
 
+    def _wait_near(self, name, fixed, timeout, thr):
+        """قالب مسجّل: نقبل التطابق الأقرب لمكان الضغطة الأصلية فقط (مفيد حين تتكرر عناصر متشابهة كأزرار «تحدي»)."""
+        fx, fy = self._pos(*fixed)
+        lim = config.NEAR_FRAC * self.w
+        end = time.time() + timeout
+        while True:
+            img = self.dev.screenshot()
+            self.check_army_limit(img)
+            self.check_energy(img)
+            hits = [(math.hypot(x - fx, y - fy), x, y) for x, y, _ in find_all_ui(img, self.ui, name, thr)]
+            hits = [h for h in hits if h[0] <= lim]
+            if hits:
+                h = min(hits)
+                return (h[1], h[2])
+            if time.time() >= end:
+                return None
+            time.sleep(config.STEP_POLL)
+
+    def run_recorded(self, name, cfg):
+        """مهمة سجّلتها بـ --record: تنفّذ خطواتها مرة واحدة (مع احترام every إن وُجد)."""
+        every = cfg.get("every") or 0
+        last = self.__dict__.setdefault("_rec_last", {})
+        if every and time.time() - last.get(name, 0) < every:
+            return 0
+        last[name] = time.time()
+        log(f"task {name}: start (recorded, {len(cfg['flow'])} steps)")
+        start = cfg.get("start", "city")
+        if start == "world":
+            self.ensure_world()
+        elif start == "city":
+            self.ensure_city()
+        self.dismiss_popups()
+        if cfg.get("zoom"):
+            from bot import zoom_out_max
+            zoom_out_max(self.dev)
+        try:
+            self.run_flow(cfg["flow"])
+        except StepFailed as e:
+            log(f"{name}: failed ({e})")
+            self._dismiss()
+            return 0
+        except ArmyLimit:
+            log(f"{name}: army limit reached")
+            return 0
+        log(f"{name}: done")
+        return 1
+
     def _visible(self, name, img=None):
         if name not in self.names:
             return None
@@ -405,6 +454,8 @@ class Runner:
             try:
                 if name == "saga":
                     self.run_saga()
+                elif name == "arena":
+                    self.run_arena()
                 else:
                     self.run_flow(steps)
                 done += 1
@@ -517,6 +568,124 @@ class Runner:
         log(f"saga: claimed {claimed}, started {started}")
         return started
 
+    # ---- ميدان الأبطال ----
+    def _on_arena(self, img=None):
+        return bool(self._visible("arena_title", img))
+
+    def _arena_open(self):
+        if self._on_arena():
+            return True
+        b = self.wait_for("arena_building", 4, 0.78) if "arena_building" in self.names else None
+        if not b and "arena_building" in self.saved:
+            log("'arena_building' not found by template, using saved point")
+            b = self._pos(*self.saved["arena_building"])
+        if not b:
+            raise StepFailed("arena_building: not found on screen")
+        self.dev.tap(*b)
+        time.sleep(1.5)
+        if not self.wait_for("arena_title", 8, config.UI_THRESHOLD):
+            raise StepFailed("arena screen did not open")
+        return True
+
+    def _arena_claim_rank(self):
+        """يستلم مكافآت الترتيب إن ظهرت شارة «!» (اختياري)."""
+        pos = self._visible("arena_reward")
+        if not pos:
+            return False
+        ox, oy = config.ARENA_REWARD_OFFSET
+        self.dev.tap(pos[0] + ox, pos[1] + oy)
+        time.sleep(1.2)
+        col = self.wait_for("arena_collect", 3, config.UI_THRESHOLD) if "arena_collect" in self.names else None
+        if col:
+            self.dev.tap(*col)
+            log("arena: rank rewards collected")
+            time.sleep(1.2)
+        self._arena_close_reward()
+        return bool(col)
+
+    def _arena_close_reward(self):
+        """يغلق نافذة المكافآت بإكسها (ليس إكس الميدان في أعلى اليسار الذي يشبهه) ويبقى في الميدان."""
+        for _ in range(2):
+            img = self.dev.screenshot()
+            xs = [h for h in find_all_ui(img, self.ui, "close_reward", config.UI_THRESHOLD)
+                  if h[0] > 0.15 * img.shape[1]]
+            if xs:
+                self.dev.tap(xs[0][0], xs[0][1])
+            elif not self._visible("arena_collect", img):
+                return
+            else:
+                self.dev.tap(*self._pos(0.5, 0.97))
+            time.sleep(1.0)
+
+    def _arena_pick(self, img):
+        hits = find_all_ui(img, self.ui, "arena_challenge", config.UI_THRESHOLD)
+        if not hits:
+            return None
+        hits.sort(key=lambda p: p[1])              # من الأعلى للأسفل
+        row = config.ARENA_ROW
+        return hits[0] if row == "top" else hits[len(hits) // 2] if row == "middle" else hits[-1]
+
+    def _arena_wait_back(self):
+        """ينتظر انتهاء المعركة والعودة لقائمة الخصوم."""
+        end = time.time() + config.ARENA_BATTLE_WAIT
+        while time.time() < end:
+            time.sleep(2.0)
+            img = self.dev.screenshot()
+            if self._on_arena(img) and not self._visible("arena_deploy", img):
+                return True
+            if not self._on_arena(img) and not self._visible("arena_deploy", img):
+                self.dev.tap(*self._pos(0.5, 0.92))   # شاشة نتيجة: لمسة فارغة تغلقها
+        return self._on_arena()
+
+    def _arena_fight_all(self):
+        done, fails = 0, 0
+        while done < config.ARENA_MAX_BATTLES and fails < 2:
+            img = self.dev.screenshot()
+            if not self._on_arena(img):
+                log("arena: left the arena screen unexpectedly - stop")
+                break
+            if self._visible("arena_empty", img):
+                log("arena: no attempts left")
+                break
+            tgt = self._arena_pick(img)
+            if not tgt:
+                log("arena: no challenge buttons found - stop")
+                break
+            self.dev.tap(tgt[0], tgt[1])
+            time.sleep(1.5)
+            auto = self.wait_for("arena_auto", 4, config.UI_THRESHOLD)
+            if auto:
+                self.dev.tap(*auto)                   # أفضل 5 أبطال
+                time.sleep(1.0)
+            go = self.wait_for("arena_deploy", 3, config.UI_THRESHOLD)
+            if not go:
+                log("arena: deploy button not found")
+                fails += 1
+                self._dismiss()
+                continue
+            self.dev.tap(*go)
+            done += 1
+            log(f"arena: battle #{done} started")
+            if not self._arena_wait_back():
+                fails += 1
+        return done
+
+    def run_arena(self):
+        if time.time() - getattr(self, "last_arena", 0) < 120:
+            return 0
+        self.last_arena = time.time()
+        self.ensure_city()
+        self.dismiss_popups()
+        self._arena_open()
+        self._arena_claim_rank()
+        fought = self._arena_fight_all()
+        self._arena_claim_rank()                      # قد تظهر مكافأة جديدة بعد الارتقاء
+        for _ in range(3):                            # خروج إلى القلعة
+            if not self._dismiss():
+                break
+        log(f"arena: fought {fought}")
+        return fought
+
     def run_flow(self, flow):
         for st in flow:
             self.do_step(st)
@@ -524,6 +693,9 @@ class Runner:
 
     # ---- مهمة كاملة ----
     def run_task(self, name):
+        rec = flows.TASKS.get(name, {})
+        if rec.get("recorded"):
+            return self.run_recorded(name, rec)
         if name == "castle":
             if time.time() - self.last_castle < config.CASTLE_EVERY_SEC:
                 return 0
@@ -539,6 +711,19 @@ class Runner:
                 return self.run_saga()
             except StepFailed as e:
                 log(f"saga: failed ({e})")
+                self._dismiss()
+                return 0
+        if name == "arena":
+            need = [st["ui"] for st in flows.CASTLE_TASKS["arena"] if not st.get("optional")]
+            miss = [n for n in need if n not in self.names and not (n == "arena_building" and n in self.saved)]
+            if miss:
+                log(f"arena: skipped, missing templates {miss}")
+                return 0
+            log("task arena: start")
+            try:
+                return self.run_arena()
+            except StepFailed as e:
+                log(f"arena: failed ({e})")
                 self._dismiss()
                 return 0
         if name in ("hunt", "gather"):
@@ -612,6 +797,14 @@ def missing_templates(names, resource=None, ui=None, level=None):
                 need += [st["ui"] for st in steps
                          if "ui" in st and not st.get("optional") and "fixed" not in st and st["ui"] not in have]
             out[n] = sorted(set(need))
+            continue
+        if flows.TASKS.get(n, {}).get("recorded"):         # مهمة مسجّلة: قوالبها لها نقاط احتياطية فلا تُعدّ ناقصة
+            out[n] = sorted({st["ui"] for st in flows.TASKS[n]["flow"]
+                             if st.get("ui") and not st.get("optional") and "fixed" not in st and st["ui"] not in have})
+            continue
+        if n == "arena":
+            out[n] = sorted({st["ui"] for st in flows.CASTLE_TASKS["arena"]
+                             if not st.get("optional") and st["ui"] not in have})
             continue
         if n == "saga":
             out[n] = sorted({st["ui"] for st in flows.CASTLE_TASKS["saga"] if st["ui"] not in have})

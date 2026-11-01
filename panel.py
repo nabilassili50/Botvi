@@ -195,7 +195,8 @@ def save_setting(key, raw):
 
 # ---------------- تشغيل/إيقاف البوت ----------------
 def start_bot(opts):
-    tasks = [t for t in opts.get("tasks", []) if t in ("castle", "hunt", "gather", "saga", "hunt_search")]
+    rec = read_json(os.path.join(ROOT, "recorded_flows.json"), {}) or {}
+    tasks = [t for t in opts.get("tasks", []) if t in ("castle", "hunt", "gather", "saga", "arena", "hunt_search") or t in rec]
     if not tasks:
         raise ValueError("اختر مهمة واحدة على الأقل")
     cmd = [sys.executable, "bot.py", "--task", ",".join(tasks)]
@@ -629,6 +630,7 @@ pre.out{background:#0a0e13;border-radius:10px;padding:10px;font:12px/1.5 ui-mono
     <span class="chip" data-t="hunt">🗡 الصيد</span>
     <span class="chip" data-t="gather">⛏ الجمع</span>
     <span class="chip" data-t="saga">📜 الملحمة</span>
+    <span class="chip" data-t="arena">⚔️ ميدان الأبطال</span>
     <span class="chip" id="allChip" style="border-style:dashed">⚡ الكل</span>
   </div>
   <div class="grid" style="margin-bottom:12px">
@@ -765,7 +767,7 @@ async function api(path,body){
 async function j(path,body){return (await api(path,body)).json()}
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2400)}
 function fmt(s){if(s==null)return"";const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h?h+" س ":"")+m+" د "+(s%60)+" ث"}
-const NAMES={castle:"القلعة",hunt:"الصيد",gather:"الجمع",saga:"الملحمة"};
+const NAMES={castle:"القلعة",hunt:"الصيد",gather:"الجمع",saga:"الملحمة",arena:"ميدان الأبطال"};
 
 let sel=new Set(),inited=false,paused=false;
 function paintChips(){document.querySelectorAll("#tasks .chip[data-t]").forEach(c=>c.classList.toggle("sel",sel.has(c.dataset.t)));
@@ -775,13 +777,13 @@ $("#allChip").onclick=()=>{const all=["castle","hunt","gather"];if(all.every(t=>
 
 async function start(){
   if(!sel.size)return toast("اختر مهمة واحدة على الأقل");
-  const order=["castle","hunt","gather","saga"].filter(t=>sel.has(t));
+  const order=["castle","hunt","gather","saga","arena"].filter(t=>sel.has(t));
   try{await j("/api/start",{tasks:order,resource:$("#res").value,level:+$("#lvl").value,loop:$("#loop").checked,no_launch:$("#nolaunch").checked});
     toast("بدأ التشغيل");refresh()}catch(e){toast("خطأ: "+e.message)}
 }
 async function stop(){try{await j("/api/stop",{});toast("تم الإيقاف");refresh()}catch(e){toast("خطأ: "+e.message)}}
 async function check(){const o=$("#checkOut");o.hidden=false;o.textContent="…";
-  try{const order=sel.size?[...sel]:["castle","hunt","gather","saga"];
+  try{const order=sel.size?[...sel]:["castle","hunt","gather","saga","arena"];
     o.textContent=(await j("/api/check",{tasks:order,resource:$("#res").value,level:+$("#lvl").value})).text||"لا شيء"}catch(e){o.textContent=e.message}}
 async function pauseResume(){try{await j(paused?"/api/resume":"/api/pause",{});toast(paused?"استؤنف":"عُلّق");refresh()}catch(e){toast("خطأ: "+e.message)}}
 async function clearLog(){if(!confirm("مسح السجل؟"))return;try{await j("/api/clear_log",{});toast("تم مسح السجل");refresh()}catch(e){toast(e.message)}}

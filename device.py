@@ -290,3 +290,23 @@ class Device:
 
     def wait(self, seconds):
         time.sleep(seconds)
+
+    # ---------- تسجيل اللمسات (record.py) ----------
+    def bg(self, cmd):
+        """يشغّل أمر شل في الخلفية (مثل getevent) ويعيد Popen."""
+        if config.BACKEND == "rish":
+            full = ["rish", "-c", cmd]
+        else:
+            full = ["adb"] + (["-s", self.serial] if self.serial else []) + ["shell", cmd]
+        return subprocess.Popen(full, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+
+    def read_shared(self, name):
+        """يقرأ ملفاً كتبه الشل في /sdcard (عبر ~/storage/shared في Termux)."""
+        if config.BACKEND == "rish":
+            try:
+                with open(os.path.expanduser(f"~/storage/shared/{name}"), errors="ignore") as f:
+                    return f.read()
+            except OSError:
+                return ""
+        return self._sh(f"cat /sdcard/{name}", binary=True).decode(errors="ignore")

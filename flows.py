@@ -14,6 +14,9 @@
   army_limit      نص/إطار نافذة "لقد وصلت إلى حد الجيش!"
   army_limit_ok   زر التأكيد في تلك النافذة
 """
+import json
+import os
+
 
 # الحارس: يتفحص بعد كل خطوة. إذا ظهرت نافذة حد الجيش يؤكد ويوقف المهمة.
 ARMY_LIMIT = {"detect": "army_limit", "confirm": "army_limit_ok"}
@@ -119,6 +122,16 @@ CASTLE_TASKS["saga"] = [          # القوالب المطلوبة فقط (ال
     {"ui": "saga_claim"}, {"ui": "saga_auto"}, {"ui": "saga_assign"},
 ]
 
+# ---------- ميدان الأبطال (يُنفَّذ ضمن القلعة أو وحده بـ --task arena) ----------
+# المسار: مبنى الميدان (قالب arena_building أو نقطة محفوظة) ← استلام مكافآت الترتيب ← كل تحدٍّ: «تحدي» ← «تحديد تلقائي» ← «نشر»
+# ← انتظار العودة للميدان ← يكرر حتى ظهور زر «+» الأحمر (arena_empty = انتهت المحاولات) أو ARENA_MAX_BATTLES.
+CASTLE_TASKS["arena"] = [         # القوالب (الإلزامية فقط تُفحص؛ التنفيذ في Runner.run_arena)
+    {"ui": "arena_building"}, {"ui": "arena_title"}, {"ui": "arena_challenge"},
+    {"ui": "arena_auto"}, {"ui": "arena_deploy"},
+    {"ui": "arena_empty", "optional": True}, {"ui": "arena_reward", "optional": True},
+    {"ui": "arena_collect", "optional": True},
+]
+
 RESOURCES = ("ore", "wood", "food", "stone", "gold")
 
 
@@ -134,6 +147,27 @@ TASKS = {
     "gather": {"flow": GATHER, "max_key": "GATHER_MAX_MARCHES"},
     "hunt": {"flow": None, "max_key": "HUNT_MAX_MARCHES"},            # الصيد الذكي (في tasks.py)
     "castle": {"flow": None, "max_key": "CASTLE_MAX"},
-    "saga": {"flow": None, "max_key": "CASTLE_MAX"},                     # الملحمة البطولية (Runner.run_saga)                   # مهام القلعة (CASTLE_TASKS)
+    "saga": {"flow": None, "max_key": "CASTLE_MAX"},
+    "arena": {"flow": None, "max_key": "CASTLE_MAX"},                    # ميدان الأبطال (Runner.run_arena)                     # الملحمة البطولية (Runner.run_saga)                   # مهام القلعة (CASTLE_TASKS)
     "hunt_search": {"flow": HUNT, "max_key": "HUNT_SEARCH_MAX_MARCHES"},   # القديم: بحث بالعدسة
 }
+
+
+# ---------- مهام مسجّلة بـ python bot.py --record NAME (تُقرأ من recorded_flows.json) ----------
+RECORDED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recorded_flows.json")
+
+
+def _load_recorded():
+    try:
+        with open(RECORDED_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return
+    for name, d in data.items():
+        if name in TASKS and not TASKS[name].get("recorded"):
+            continue                       # لا نكتب فوق مهمة مدمجة
+        TASKS[name] = {"flow": d.get("steps", []), "max_key": "CASTLE_MAX", "recorded": True,
+                       "start": d.get("start", "city"), "every": d.get("every", 0), "zoom": d.get("zoom", False)}
+
+
+_load_recorded()
