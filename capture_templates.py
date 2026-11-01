@@ -9,6 +9,8 @@
     python capture_templates.py --grab shot.png --grid     # يصغّر ويحفظ shot.png + shot_grid.png (شبكة إحداثيات)
     python capture_templates.py --image shot.png --crop barracks 420 310 90 80
         # يقص المستطيل (x y w h) ويحفظه في templates/barracks/
+    python capture_templates.py --image shot.png --pos barracks 480 350
+        # بدون قص: يحفظ نقطة المبنى فقط في positions.json (يكفي X Y من الشبكة)
 
 نصيحة: أنشئ القوالب على الحاسوب ثم ارفعها إلى GitHub واسحبها في Termux.
 """
@@ -18,6 +20,7 @@ import os
 import cv2
 
 import config
+import positions
 from bot import zoom_out_max
 from device import Device
 
@@ -71,6 +74,8 @@ def main():
     ap.add_argument("--crop", nargs=5, metavar=("NAME", "X", "Y", "W", "H"))
     ap.add_argument("--ui", nargs=5, metavar=("NAME", "X", "Y", "W", "H"),
                     help="قص زر واجهة وحفظه في templates/_NAME (للصيد والجمع)")
+    ap.add_argument("--pos", nargs=3, metavar=("NAME", "X", "Y"),
+                    help="احفظ نقطة فقط (بدون قص قالب) في positions.json؛ X Y بكسل من لقطة الشبكة")
     ap.add_argument("--serial")
     args = ap.parse_args()
 
@@ -94,6 +99,13 @@ def main():
     if args.ui:
         name, x, y, w, h = args.ui
         save_crop(img, name.replace(" ", "_"), int(x), int(y), int(w), int(h), ui=True)
+        return
+
+    if args.pos:
+        name, x, y = args.pos
+        h, w = img.shape[:2]
+        positions.save(name.replace(" ", "_"), int(x) / w, int(y) / h)
+        print(f"حُفظت النقطة {name}: ({int(x)},{int(y)}) = ({int(x) / w:.3f},{int(y) / h:.3f}) في positions.json")
         return
 
     if args.crop:

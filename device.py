@@ -31,6 +31,7 @@ class Device:
         self.serial = serial or config.SERIAL
         self._u2 = None
         self._touch = None
+        self._shot_n = 0
 
     # ---------- shell backend ----------
     def _sh(self, cmd, binary=False, timeout=30, expect=False):
@@ -86,11 +87,22 @@ class Device:
         if config.BACKEND != "rish":
             img = self._decode(self._sh("screencap -p", binary=True))
         if img is None and config.BACKEND == "rish":
-            # fallback: write to shared storage and read it from Termux
-            self._sh(f"screencap -p /sdcard/{SHARED_SHOT}")
-            path = os.path.expanduser(f"~/storage/shared/{SHARED_SHOT}")
-            with open(path, "rb") as f:
-                img = self._decode(f.read())
+            # نكتب الصورة في /sdcard باسم مختلف كل مرة (لتفادي تخزين مؤقت قديم/ملف ناقص) ونتأكد من اكتمالها قبل قراءتها
+            for attempt in range(5):
+                name = f".lords_shot{self._shot_n % 4}.png"
+                self._shot_n += 1
+                self._sh(f"rm -f /sdcard/{name}; screencap -p /sdcard/{name}")
+                time.sleep(0.1 + 0.25 * attempt)
+                path = os.path.expanduser(f"~/storage/shared/{name}")
+                try:
+                    with open(path, "rb") as f:
+                        data = f.read()
+                except OSError:
+                    data = b""
+                if data.endswith(b"IEND\xaeB`\x82"):          # PNG مكتمل
+                    img = self._decode(data)
+                    if img is not None:
+                        break
         if img is None:
             raise RuntimeError("Could not decode screenshot")
         return img

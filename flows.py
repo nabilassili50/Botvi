@@ -70,6 +70,55 @@ def zone_points(level, w=1280, h=800):
 SCAN_DIRS = [(-1, 0), (-1, 0), (0, -1), (1, 0), (1, 0), (0, -1)]
 
 
+# ---------- مهام القلعة (تُنفَّذ أولاً داخل المدينة ثم ينتقل البوت للخريطة) ----------
+# كل مهمة قائمة خطوات بنفس صيغة الخطوات أعلاه، مع خيار إضافي:
+#   {"ui": "اسم", "repeat": N}   يضغط القالب ما دام ظاهراً (حتى N مرة) ولا يعتبر غيابه فشلاً - للمطالبة بكل الهدايا مثلاً
+# المهمة التي ينقصها قالب إلزامي تُتجاوز مع تنبيه في السجل (ولا توقف البوت). القوالب تُقصّ من لقطاتك.
+CASTLE_TASKS = {
+    "alliance_gifts": [        # هدايا التحالف
+        {"ui": "btn_alliance", "wait": 1.5},
+        {"ui": "alliance_gifts_tab", "wait": 1.2},
+        {"ui": "gift_claim", "repeat": 30, "wait": 0.6},
+        {"ui": "close", "optional": True, "wait": 0.6},
+        {"ui": "close", "optional": True, "wait": 0.6},
+    ],
+    "alliance_help": [         # الموافقة على مساعدات التحالف (أيقونة المصافحة على اليسار)
+        {"ui": "btn_help", "wait": 1.5},
+        {"ui": "help_all", "repeat": 3, "wait": 1.0},
+        {"ui": "close", "optional": True, "wait": 0.6},
+        {"ui": "close", "optional": True, "wait": 0.6},
+    ],
+    "mystery_chest": [         # صندوق الغموض (الصندوق الذهبي في المدينة ثم «استلام»)
+        {"ui": "mystery_chest", "threshold": 0.72, "wait": 1.5},
+        {"ui": "chest_claim", "repeat": 8, "wait": 1.5},
+        {"ui": "close_banner", "optional": True, "wait": 0.8},
+    ],
+    "free_finish": [           # الإكمال المجاني (بناء/بحث/تدريب)
+        {"ui": "free_finish", "repeat": 10, "wait": 1.0},
+    ],
+    "beast_collect": [         # جمع مهارة/موارد الوحوش
+        {"ui": "btn_beasts", "wait": 1.5},
+        {"ui": "beast_collect", "repeat": 10, "wait": 1.0},
+        {"ui": "close", "optional": True, "wait": 0.6},
+    ],
+    "train": [                 # تدريب الجنود
+        {"ui": "btn_barracks", "wait": 1.5},
+        {"ui": "train_btn", "wait": 1.2},
+        {"ui": "train_confirm", "wait": 1.2},
+        {"ui": "close", "optional": True, "wait": 0.6},
+    ],
+}
+
+# ---------- الملحمة البطولية (تُنفَّذ ضمن القلعة أو وحدها بـ --task saga) ----------
+# المسار: مبنى الملحمة (برج المستوى 25) ← أيقونة البوصلة ← شاشة الملحمة ← استلام كل المكافآت ← لكل جزيرة: «تحديد تلقائي» ثم «تعيين».
+# عدد المهام اليومية غير مثبّت في الكود: يجرّب كل الجزر ويكتفي بما يقبل البدء (إن زاد الحد من 4 إلى 5 أضف موضع الجزيرة الخامسة).
+SAGA_SLOTS = [(0.35, 0.36), (0.71, 0.36), (0.25, 0.67), (0.62, 0.66)]   # مراكز الجزر كنسب من الشاشة (1280x800)
+SAGA_NEUTRAL = (0.53, 0.27)                                              # نقطة فارغة لإغلاق نافذة الجزيرة
+CASTLE_TASKS["saga"] = [          # القوالب المطلوبة فقط (التنفيذ في Runner.run_saga)
+    {"ui": "saga_building"}, {"ui": "saga_compass"}, {"ui": "saga_title"},
+    {"ui": "saga_claim"}, {"ui": "saga_auto"}, {"ui": "saga_assign"},
+]
+
 RESOURCES = ("ore", "wood", "food", "stone", "gold")
 
 
@@ -84,5 +133,7 @@ def get_flow(task, resource=None):
 TASKS = {
     "gather": {"flow": GATHER, "max_key": "GATHER_MAX_MARCHES"},
     "hunt": {"flow": None, "max_key": "HUNT_MAX_MARCHES"},            # الصيد الذكي (في tasks.py)
+    "castle": {"flow": None, "max_key": "CASTLE_MAX"},
+    "saga": {"flow": None, "max_key": "CASTLE_MAX"},                     # الملحمة البطولية (Runner.run_saga)                   # مهام القلعة (CASTLE_TASKS)
     "hunt_search": {"flow": HUNT, "max_key": "HUNT_SEARCH_MAX_MARCHES"},   # القديم: بحث بالعدسة
 }

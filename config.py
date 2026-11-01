@@ -65,10 +65,36 @@ ZONE_SWIPES = 10                   # أقصى عدد سحبات للبحث عن 
 SWIPE_FRAC = 0.40                  # طول السحبة كنسبة من الشاشة
 SWIPE_MS = 500
 ZONE_SETTLE = 2.0                  # انتظار بعد الضغط على المنطقة في المخطط
-NODE_THRESHOLD = 0.80              # حد تطابق قوالب العقد وشارات المستوى
+NODE_THRESHOLD = 0.72              # حد تطابق قوالب العقد وشارات المستوى
 NODE_BADGE_DIST = 170              # أقصى مسافة (بكسل) بين العقدة وشارة مستواها
 
 # ---- الصيد الذكي (hunt) ----
 HUNT_WAIT = 20                     # ثوانٍ بعد كل هجمة قبل ضرب نفس الوحش مرة أخرى (مدة المسير والمعركة)
 ENERGY_RETRY_SEC = 1800            # عند نفاد الطاقة: لا يعيد المحاولة قبل هذه المدة (لا يستعمل أي عنصر من الحقيبة)
 MONSTER_NEAR_PX = 220              # أقصى إزاحة (بكسل) لاعتبار الوحش هو نفسه بعد تحرّك الخريطة قليلاً
+HUNT_RETRIES = 3                   # محاولات إعادة فتح نفس الوحش قبل اعتباره مات
+HUNT_RETRY_WAIT = 8                # ثوانٍ بين المحاولات (قد يكون الجيش ما زال يقاتله)
+
+# ---- مهام القلعة ----
+CASTLE_MAX = 1                     # (غير مستعمل فعلياً؛ مهام القلعة تُنفَّذ مرة كل CASTLE_EVERY_SEC)
+CASTLE_EVERY_SEC = 1800            # في وضع --loop: يعيد مهام القلعة كل هذه المدة (30 دقيقة)
+
+# ---- تحكم بدون تعديل الكود ----
+DEBUG = os.environ.get("LORDS_DEBUG") == "1"   # يحفظ صوراً عليها ما يراه البوت في runs/debug
+
+
+def _load_overrides():
+    """settings.json بجانب البوت يغيّر أي قيمة هنا: python bot.py --set ZONE_SWIPES=6"""
+    import json
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return
+    for k, v in data.items():
+        if k in globals() and not k.startswith("_"):
+            globals()[k] = v
+
+
+_load_overrides()

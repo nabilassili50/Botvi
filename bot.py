@@ -52,7 +52,7 @@ def zoom_out_max(dev):
     return prev
 
 
-def run_once(dev, launch=True):
+def run_once(dev, launch=True, wait=True):
     buildings_tpl, ui_tpl = load_templates()
     if not buildings_tpl:
         log(f"warning: no templates in {config.TEMPLATES_DIR}/ - run capture_templates.py first")
@@ -60,8 +60,9 @@ def run_once(dev, launch=True):
     if launch and not dev.is_foreground():
         log("launching the game...")
         dev.launch()
-    log(f"waiting {config.LOAD_WAIT}s for the game to load")
-    dev.wait(config.LOAD_WAIT)
+    if wait:
+        log(f"waiting {config.LOAD_WAIT}s for the game to load")
+        dev.wait(config.LOAD_WAIT)
 
     close_popups(dev, ui_tpl)
     img = zoom_out_max(dev)
@@ -84,7 +85,10 @@ def run_once(dev, launch=True):
         json.dump(result, f, ensure_ascii=False, indent=2)
     with open(os.path.join(config.OUTPUT_DIR, "latest.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    cv2.imwrite(os.path.join(config.OUTPUT_DIR, f"{stamp}.png"), annotate(img, found))
+    ann = annotate(img, found)
+    cv2.imwrite(os.path.join(config.OUTPUT_DIR, f"{stamp}.png"), ann)
+    cv2.imwrite(os.path.join(config.OUTPUT_DIR, "castle_raw.png"), img)     # للوحة: القص وإنشاء القوالب
+    cv2.imwrite(os.path.join(config.OUTPUT_DIR, "latest.png"), ann)
 
     log(f"detected {len(found)} buildings; missing: {missing or 'none'}")
     return result
@@ -105,6 +109,14 @@ def watch(dev):
         except Exception as e:  # noqa: BLE001
             log(f"error: {e}")
         time.sleep(config.WATCH_POLL)
+
+
+def expand_tasks(text):
+    names = [t.strip() for t in (text or "").split(",") if t.strip()]
+    out = []
+    for n in names:
+        out += ["castle", "hunt", "gather"] if n == "all" else [n]
+    return out
 
 
 def run_tasks(dev, names, loop, launch=True, resource=None, level=None):
@@ -146,7 +158,7 @@ def run_tasks(dev, names, loop, launch=True, resource=None, level=None):
                 res = {n: 0 for n in names}
             st = record_round(res)
             log(f"round: {res} | total: {st['marches']}")
-            idle = 0 if runner.all_blocked(names) else (idle + 1 if sum(res.values()) == 0 else 0)
+            idle = idle + 1 if (runner.round_failures and sum(res.values()) == 0) else 0   # نعدّ فقط الجولات الفاشلة فعلاً، لا الجولات التي لا مجال فيها لجيش جديد
             if loop and launch and config.AUTO_RELAUNCH and idle >= config.RESTART_AFTER_IDLE_ROUNDS:
                 log(f"{idle} idle rounds -> restart the game")
                 dev.stop()
@@ -180,22 +192,59 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--no-launch", action="store_true")
+    ap.add_argument("--detect", action="store_true", help="اللعبة مفتوحة: أغلق النوافذ، صغّر القلعة للحد الأقصى، اكتشف المباني واحفظ النتيجة")
+    ap.add_argument("--zoom", action="store_true", help="اللعبة مفتوحة: أغلق النوافذ وصغّر القلعة للحد الأقصى واحفظ اللقطة فقط (runs/castle_raw.png)")
     ap.add_argument("--serial")
-    ap.add_argument("--task", help="مهام للتنفيذ مفصولة بفاصلة: gather,hunt")
+    ap.add_argument("--task", help="مهام مفصولة بفاصلة: castle,hunt,gather — أو all = القلعة ثم الصيد ثم الجمع")
     ap.add_argument("--loop", action="store_true", help="كرّر المهام كل config.LOOP_PAUSE ثانية")
     ap.add_argument("--resource", help="مورد الجمع: ore|wood|food|stone|gold")
     ap.add_argument("--level", type=int, help="جمع من منطقة المستوى N (1-5) عبر مخطط المناطق مع السحب للبحث")
+    ap.add_argument("--set", nargs="+", metavar="KEY=VALUE", help="يحفظ إعداداً في settings.json (مثال: --set ZONE_SWIPES=6 HUNT_WAIT=30)")
+    ap.add_argument("--settings", action="store_true", help="يعرض الإعدادات المعدّلة")
+    ap.add_argument("--debug", action="store_true", help="يحفظ صوراً بما يراه البوت في runs/debug")
     ap.add_argument("--check", action="store_true", help="يعرض القوالب الناقصة للمهام ويخرج")
     args = ap.parse_args()
 
+    if args.set or args.settings:
+        import json
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                cur = json.load(f)
+        except (OSError, ValueError):
+            cur = {}
+        for kv in args.set or []:
+            k, _, v = kv.partition("=")
+            if not hasattr(config, k.strip()):
+                raise SystemExit(f"إعداد مجهول: {k}")
+            try:
+                cur[k.strip()] = json.loads(v)
+            except ValueError:
+                cur[k.strip()] = v
+        if args.set:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(cur, f, ensure_ascii=False, indent=2)
+        print(json.dumps(cur, ensure_ascii=False, indent=2) if cur else "{} (كل الإعدادات افتراضية)")
+        raise SystemExit(0)
+    if args.debug:
+        config.DEBUG = True
     if args.check:
-        check([t.strip() for t in (args.task or "").split(",") if t.strip()], args.resource, args.level)
+        check(expand_tasks(args.task), args.resource, args.level)
 
     dev = Device(args.serial)
     log(f"backend={config.BACKEND} screen={dev.size()}")
     try:
-        if args.task:
-            run_tasks(dev, [t.strip() for t in args.task.split(",") if t.strip()], args.loop,
+        if args.zoom:
+            _, ui_tpl = load_templates()
+            close_popups(dev, ui_tpl)
+            img = zoom_out_max(dev)
+            os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+            cv2.imwrite(os.path.join(config.OUTPUT_DIR, "castle_raw.png"), img)
+            log("castle zoomed out; saved runs/castle_raw.png")
+        elif args.detect:
+            run_once(dev, launch=False, wait=False)
+        elif args.task:
+            run_tasks(dev, expand_tasks(args.task), args.loop,
                       launch=not args.no_launch, resource=args.resource, level=args.level)
         elif args.watch:
             watch(dev)
