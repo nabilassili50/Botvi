@@ -391,6 +391,9 @@ class Runner:
         """مهام القلعة بالترتيب. المهمة التي ينقصها قالب تُتجاوز، وفشل مهمة لا يوقف البقية."""
         self.ensure_city()
         self.dismiss_popups()
+        if config.CASTLE_ZOOM_FIRST:
+            from bot import zoom_out_max          # تصغير أقصى + تثبيت المنظر قبل أي ضغط على مبنى
+            zoom_out_max(self.dev)
         done = 0
         for name, steps in flows.CASTLE_TASKS.items():
             need = [st["ui"] for st in steps if "ui" in st and not st.get("optional") and "fixed" not in st]

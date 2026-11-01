@@ -30,7 +30,34 @@ def close_popups(dev, ui):
         dev.wait(1.0)
 
 
+def align_view(dev, img):
+    """يدفع الخريطة نحو زاوية حتى تتوقف عن التحرك: منظر ثابت في كل دخول (يزيل الإزاحة)."""
+    dx, dy = config.CASTLE_ALIGN_DIR
+    h, w = img.shape[:2]
+    cx, cy = w // 2, h // 2
+    sx, sy = int(w * config.ALIGN_SWIPE_FRAC / 2) * dx, int(h * config.ALIGN_SWIPE_FRAC / 2) * dy
+    prev = img
+    for i in range(config.ALIGN_MAX_SWIPES):
+        dev.swipe(cx - sx, cy - sy, cx + sx, cy + sy, 450)
+        dev.wait(config.ZOOM_SETTLE)
+        cur = dev.screenshot()
+        d = frame_diff(prev, cur)
+        log(f"align #{i + 1}: diff={d:.2f}")
+        if d < config.ZOOM_DIFF_THRESHOLD:
+            log("view aligned (map reached the edge)")
+            return cur
+        prev = cur
+    log("warning: view did not settle while aligning")
+    return prev
+
+
 def zoom_out_max(dev):
+    """تصغير أقصى ثم تثبيت المنظر (config.CASTLE_ALIGN)."""
+    img = _pinch_max(dev)
+    return align_view(dev, img) if config.CASTLE_ALIGN else img
+
+
+def _pinch_max(dev):
     """Pinch repeatedly until the screen stops changing (maximum zoom-out)."""
     prev = dev.screenshot()
     stable = 0

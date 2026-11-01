@@ -78,14 +78,23 @@ def match_one(gray, templates, scales, threshold):
     return hits
 
 
-def detect_buildings(img, buildings, scales=None, threshold=None):
+def detect_buildings(img, buildings, scales=None, threshold=None, box="config"):
+    """يبحث داخل مستطيل القلعة فقط (config.CASTLE_BOX كنسب) ويعيد الإحداثيات بالنسبة للصورة كاملة."""
     scales = scales or config.SCALES
     threshold = threshold or config.MATCH_THRESHOLD
+    if box == "config":
+        box = config.CASTLE_BOX
+    H, W = img.shape[:2]
+    ox = oy = 0
     gray = to_gray(img)
+    if box:
+        x1, y1, x2, y2 = [float(v) for v in box]
+        ox, oy = int(x1 * W), int(y1 * H)
+        gray = gray[oy:int(y2 * H), ox:int(x2 * W)]
     candidates = []
     for name, tpls in buildings.items():
         for (x, y, w, h, sc) in match_one(gray, tpls, scales, threshold):
-            candidates.append((name, x, y, w, h, sc))
+            candidates.append((name, x + ox, y + oy, w, h, sc))
 
     candidates.sort(key=lambda c: c[5], reverse=True)
     kept = []
