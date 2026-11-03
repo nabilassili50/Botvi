@@ -1,0 +1,5 @@
+settings.json
+debug_*
+touch_dev.json
+panel.log
+__pycache__/
